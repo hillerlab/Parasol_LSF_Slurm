@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Parasol Wrapper for the LSF queuing system</title>
+        <link rel="stylesheet" href="styles/site.css" type="text/css" />
+        <META http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    </head>
+
+    <body class="theme-default aui-theme-default">
+        <div id="page">
+            <div id="main" class="aui-page-panel">
+                <div id="main-header">
+                    <h1 id="title-heading" class="pagetitle">
+                                                <span id="title-text">
+                            Parasol Wrapper for the LSF queuing system
+                        </span>
+                    </h1>
+                </div>
+
+                <div id="content" class="view">
+                    <div class="page-metadata">
+                                                Added by  hiller , edited by  hiller  on Sep 03, 2014
+                    </div>
+                    <div id="main-content" class="wiki-content group">
+                    <h1 id="ParasolWrapperfortheLSFqueuingsystem-Purpose">Purpose</h1><p>Jim Kent at UCSC implemented <a href="http://genecats.cse.ucsc.edu/eng/parasol.htm" class="external-link" rel="nofollow">Parasol</a>, a queuing system to &quot; run large batches of jobs on computer cluster&quot;. Parasol is extremely handy when it comes to submitting and managing big lists of jobs.</p><p>Load Sharing Facility (or simply <a href="http://en.wikipedia.org/wiki/Platform_LSF" class="external-link" rel="nofollow">LSF</a>) unfortunately does not provide the functionality to easily manage such job lists.<br />This perl script '<strong>para.pl</strong>' is a wrapper around LSF and provides most of the functionality that Jim Kent's Parasol provides.</p><p><strong><span style="color: rgb(0,0,0);">para.pl can submit, monitor and wait</span></strong> until an entire jobList is finished. It can output average runtime statistics and estimates when the entire jobList should be finished. It can recover crashed jobs and submit them again. It can stop all the running&amp;pending or only the pending jobs of this jobList only. <br />Finally, in complex pipelines (see below), you can string together more than one jobList. Because you need to specify a unique name for each running jobList, it is easy to manage more than one jobList.</p><h4 id="ParasolWrapperfortheLSFqueuingsystem-WhatisajobList?">What is a jobList ?</h4><p>A jobList is just a file where every line is one cluster job.<span style="color: rgb(255,0,0);"> Every job (line) must be independent on any other job !<br /></span></p><p>For example,if you want to test different parameters, align all proteins against all, process thousands of microscopy images, then each cluster job (line in the jobList file) could be one parameter combination, one pair of proteins or one microscopy image.</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>yourScript.py inputFile1 -otherParameters
+yourScript.py inputFile2 -otherParameters
+...</pre>
+</div></div><p>If you push this jobList with para.pl every job (line) will be executed by one core and as many jobs could be executed in parallel as we have available cores.</p><h1 id="ParasolWrapperfortheLSFqueuingsystem-Whatpara.plcando"><span style="color: rgb(255,0,0);"><span style="color: rgb(0,0,0);">What para.pl can do</span></span></h1><p>If you have a jobList file, you can</p><ul><li><p>submit (push) the jobList to the compute cluster with a single call (<em>para.pl push</em>)</p></li><li><p>submit the jobList, monitor the submitted jobs, push failed jobs again a maximum of 3 times and wait until all jobs are done or jobs crashed &gt;3 times (<em>para.pl make</em>)</p></li><li>check how many jobs in the current joblist are done, pending, crashed (<em>para.pl check</em>)</li><li>output runtime statistics and an estimation when all jobs are finished (<em>para.pl time</em>)</li><li>determine which jobs crashed and push those jobs again unless they failed 3 times already (<em>para.pl pushCrashed</em>)</li><li>output all crashed jobs into the given output filename (<em>para.pl crashed</em>)</li><li>'connect' to a running jobList (that you submitted via <em>para.pl push</em>) and wait until the running and pending jobs are done, pushes failed jobs again a max of 3 times (<em>para.pl wait</em>)</li><li>stop all running and pending jobs in this jobList (<em>para.pl stop</em>). You can recover all stopped and crashed jobs with '<em>para.pl crashed</em>'</li><li>stop only the pending jobs in this jobList (<em>para.pl chill</em>). Running jobs continue to run. You can recover all stopped and crashed jobs with '<em>para.pl crashed</em>'</li><li>cleanup: remove all internal para files and LSF output files for the given jobListName (<em>para.pl clean</em>)<br /><br /></li></ul><h3 id="ParasolWrapperfortheLSFqueuingsystem-Usage">Usage</h3><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>para.pl action jobListName [jobListFile] [-q queue] [-p bsubParameters] [-v|verbose] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded] [-keepBackupFiles]
+where action can be:    make, push, pushCrashed, check, wait, stop, chill, time, crashed, clean
+    make          pushes the joblist, monitors progress, pushes failed jobs again a maximum of 3 times, waits until all jobs are done or jobs crashed &gt;3 times
+    push          pushes the joblist
+    pushCrashed   determines which jobs crashed and pushes those jobs again unless they failed 3 times already. It uses the same bsub parameters. Queue is the same, unless a job failed with exceeding the runtime limit.
+    check         checks how many jobs in the current joblist are done. Exit code 0 if all succeeded. Otherwise exit code 255. 
+    wait          &#39;connects&#39; to a running jobList and waits until the running and pending jobs are done, pushes failed jobs again a max of 3 times.
+    stop          stops all running and pending jobs in the jobList --&gt; You can recover all stopped and crashed jobs with &#39;crashed&#39;
+    chill         stops all pending jobs only. Lets the running jobs continue to run. --&gt; You can recover all stopped and crashed jobs with &#39;crashed&#39;
+    time          outputs runtime statistics and an estimation when all jobs are finished
+    crashed       outputs all crashed jobs into the given output filename
+    clean         remove all internal para files and LSF output files for the given jobListName
+
+The number of input parameters depends on the action:
+    para.pl make          jobListName  jobListFile  [-q|queue short|medium|long] [-p|parameters &quot;additional parameters for bsub&quot;] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
+    para.pl push          jobListName  jobListFile  [-q|queue short|medium|long] [-p|parameters &quot;additional parameters for bsub&quot;] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
+    para.pl pushCrashed   jobListName  
+    para.pl check         jobListName
+    para.pl wait          jobListName
+    para.pl stop          jobListName
+    para.pl chill         jobListName
+    para.pl time          jobListName
+    para.pl crashed       jobListName  outputJobListFile
+    para.pl clean         jobListName
+
+General parameters
+    -v|--verbose                                 enable verbose output
+    -maxNumResubmission int                      set the max number of times a crashed job will be pushed again (default 3). NOTE: has only an effect when doing para make
+    -noResubmitIfQueueMaxTimeExceeded            do not resubmit the jobs that failed because they exceeded the runtime limit of the queue (default is do resubmit)
+    -resubmitToSameQueueIfQueueMaxTimeExceeded   resubmit the jobs that failed because they exceeded the runtime limit of the queue, but resubmit to the same (rather than the next longest) queue. 
+                                                 Only useful, if your job checks which preliminary results exist (e.g. for input elements the output file already exist).
+    -keepBackupFiles                             if set, keep a backup of every internal para file in a dir .para/backup/ (backup files will be produced everytime the internal files are updated)</pre>
+</div></div><h4 id="ParasolWrapperfortheLSFqueuingsystem-bsubparameters">bsub parameters</h4><p>You can specify additional bsub parameters such as -W (set max wall clock time), -e (append stderr to this file) etc. Please see the LSF documentation for which parameters are available.</p><h1 id="ParasolWrapperfortheLSFqueuingsystem-Beforerunningpara.pl,configuretheparameters">Before running para.pl, configure the parameters</h1><p>Before running para.pl, please edit the following parameters at the beginning of the perl script. <br />In particular, change the name of the cluster head node (the computer that can submit jobs to LSF), change the LSF default queue, the longest queue, and adapt the LSF queues by adding them to &quot;Queue2Order&quot; and &quot;Order2Queue&quot; in the order of their maximum allowed run time.</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>######################################
+# PARAMETERS YOU MUST CONFIGURE
+my $clusterHeadNode = &quot;madmax&quot;;          # specify here the hostname of the cluster head node (the computer that is able to submit jobs to LSF). The script will only run when executed on this node. 
+my $queue = &quot;short&quot;;                     # short queue is the default
+my $maxRunTimeQueue = &quot;long&quot;;            # the queue with the maximum runtime
+
+# used if jobs reach the run time limit of a queue and have to be resubmitted (used in pushCrashed)
+my %Queue2Order;
+$Queue2Order{&quot;short&quot;} = 0;
+$Queue2Order{&quot;medium&quot;} = 1;
+$Queue2Order{&quot;long&quot;} = 2;
+my %Order2Queue;
+$Order2Queue{0} = &quot;short&quot;;
+$Order2Queue{1} = &quot;medium&quot;;
+$Order2Queue{2} = &quot;long&quot;;
+######################################</pre>
+</div></div><p>You could also change other parameters such as sleep times and maximum number of resubmissions that are not critical for running para.pl.</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>######################################
+# optional configurable default parameters
+my $maxNumResubmission = 3;            # max number of times a job gets resubmitted, in case it crashed
+my $numAtATime = 1000;                 # call bjobs with that many jobIDs max
+my $maxNumOutFilesPerDir = 1000;       # we generate LSF output files for each job in the .para/$jobListName/$subDir dir. 
+                                       # This value determines how many files will be generated per $subDir to avoid overloading lustre with too many files in a single dir. 
+my $maxNumFastSleepCycles = 10;        # do that many cycles where we sleep only $sleepTime1, after that sleep $sleepTime2
+my $sleepTime1 = 45;                   # time in seconds
+my $sleepTime2 = 90;
+my $sleepTimeLSFBusy = 180;            # time to wait if LSF is too busy
+#####################################</pre>
+</div></div><h1 id="ParasolWrapperfortheLSFqueuingsystem-Notes">Notes</h1><ol><li>If your jobs output results to STDOUT, use a redirect (e.g. &quot;runSomething input1 &gt; input1.output&quot;) to a file to get that output. Otherwise, it will be lost.</li><li><p>para.pl uses the unix lockfile mechanism to prevent race conditions (two parallel calls of para.pl write and read to the same data). <br />In case of a severe error or if you &lt;ctrl&gt;-C para, it is possible that the lockfile was not removed. Then, the next call of para.pl will say</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>Waiting to get ./lockFile.$jobListName   ..... [Takes too long? Did a previous para.pl run died? If so, open a new terminal and   rm -f ./lockFile.$jobListName ] .....</pre>
+</div></div><p>If this message is not followed by a &quot;got it&quot; within a few seconds, you likely have a lockfile.$jobListName in this directory. Then,</p><ol><li><p>check if you have called para.pl in a parallel session (e.g. running para.pl make or para.pl wait)</p></li><li><p>if not, delete the file with 'rm lockfile.$jobListName'</p></li></ol></li></ol><h1 id="ParasolWrapperfortheLSFqueuingsystem-Workflows">Workflows</h1><h3 id="ParasolWrapperfortheLSFqueuingsystem-SinglejobListmanagingontheUnixcommandline">Single jobList managing on the Unix command line</h3><p>Here is a simple illustration just running a script that will wait between 30 and 50 seconds, prints a single-line output message and then die with a 50% probability.</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>cat jobList
+DieRandomTime.perl 30 -T 0.5 &gt; resultsDir/run0.txt
+DieRandomTime.perl 33 -T 0.5 &gt; resultsDir/run1.txt
+DieRandomTime.perl 38 -T 0.5 &gt; resultsDir/run2.txt
+DieRandomTime.perl 40 -T 0.5 &gt; resultsDir/run3.txt
+DieRandomTime.perl 49 -T 0.5 &gt; resultsDir/run4.txt
+
+# create resultsDir
+mkdir resultsDir
+
+# push the jobList. Here with some optional parameters. 
+para.pl push jobListTest jobList -q short -p &quot;-W 0:50&quot; 
+**** PUSH Jobs to queue: short
+**** Additional bsub parameters: -W 0:50
+Waiting to get ./lockFile.jobListTest   ..... [Takes too long? Did a previous para.pl run died? If so, open a new terminal and   rm -f ./lockFile.jobListTest ] .....  got it
+DONE.
+5 jobs pushed using parameters: -q short -W 0:50
+
+# check
+para.pl check jobListTest
+RUN: 0          PEND: 5          DONE: 0          FAILED: 0       (0 of them failed 3 times)
+
+# check a little later again
+para.pl check jobListTest
+RUN: 3          PEND: 0          DONE: 2          FAILED: 0       (0 of them failed 3 times)
+
+# get time estimate 
+para.pl time jobListTest
+RUN: 3          PEND: 0          DONE: 2          FAILED: 0      
+Time in finished jobs:           63 sec         1.1 min       0.0 h      0.0 days
+Average job time:                32 sec         0.5 min       0.0 h      0.0 days
+Longest finished job:            33 sec         0.6 min       0.0 h      0.0 days        (jobID 122688)
+Longest running job:             34 sec         0.6 min       0.0 h      0.0 days        (jobID 122689)
+Estimated complete:              32 sec         0.5 min       0.0 h      0.0 days        (assume 3 running jobs)
+
+# now wait until it finishes
+para.pl wait jobListTest
+WAIT UNTIL jobList is finished ..... 
+numJobs: 5          RUN: 3          PEND: 0          DONE: 2          FAILED: 0        (0 of them failed 3 times)    allDone: NO
+sleep 45 seconds ...  (waiting 0 sec by now)
+...
+# for the demonstration, I stopped it with &lt;ctrl-C&gt;
+# check if the lockfile exists --&gt; was not the case (otherwise delete it)
+
+# stop all running and pending jobs --&gt; they will get status EXIT meaning crashed
+para.pl stop jobListTest
+Job &lt;122689&gt; is being terminated
+Job &lt;122690&gt; is being terminated
+Job &lt;122691&gt; is being terminated
+0 pending and 5 running jobs killed
+
+# get the crashed jobs. They could be resubmitted using &#39;para.pl push newName jobListStoppedJobs&#39;
+para.pl crashed jobListTest jobListStoppedJobs
+recovered 3 crashed jobs into jobListStoppedJobs
+
+cat jobListStoppedJobs
+DieRandomTime.perl 38 -T 0.2 &gt; resultsDir/run2.txt
+DieRandomTime.perl 40 -T 0.2 &gt; resultsDir/run3.txt
+DieRandomTime.perl 49 -T 0.2 &gt; resultsDir/run4.txt
+
+# just cleanup (as we had only a single jobList in this directory, the entire .para directory will be deleted)
+para.pl clean jobListTest
+jobList jobListTest is cleaned
+</pre>
+</div></div><h3 id="ParasolWrapperfortheLSFqueuingsystem-Inpipelinescripts">In pipeline scripts</h3><p>Use 'para.pl make' here.<br />Once para.pl make finishes, run 'para.pl check' which exits with 0 if every job finished or -1 otherwise. Your pipeline script should stop if 'para.pl check' exits with -1 as the jobList did not finish (the variable $? stores the exit code of the previous command). <br />You can then call 'para.pl time' and pipe the output into a 'run.time' file. If that file exists, this is a signal for a downstream step that the upstream step was successful.</p><p>Example pseudocode:</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>######################
+# step 1
+Prepare jobListStep1
+mkdir run.step1
+cd run.step1
+para.pl make step1 jobListStep1 -q $queue -p &quot;$bsubParameters&quot;
+para.pl check step1
+if ($? != 0) {
+	echo &quot;ERROR: step1 did not succeed. \&quot;para.pl check\&quot; failed.&quot; 
+	exit -1
+}
+para.pl time step1 &gt; run.time
+cd ..
+
+######################
+# step 2
+if (! -e &quot;run.step1/run.time&quot;) {
+	echo &quot;ERROR: step1 did not succeed. Cannot find the \&quot;run.step1/run.time\&quot; file&quot;. 
+	exit -1
+}
+Prepare jobListStep2
+mkdir run.step2
+cd run.step2
+para.pl make step2 jobListStep2 -q $queue -p &quot;$bsubParameters&quot;
+para.pl check step2
+para.pl time step2 &gt; run.time
+cd ..
+
+# step 3
+...</pre>
+</div></div><h1 id="ParasolWrapperfortheLSFqueuingsystem-ForParasolusers:DifferencesbetweenUCSCparasolandpara.plforLSF">For Parasol users: Differences between UCSC parasol and para.pl for LSF</h1><h3 id="ParasolWrapperfortheLSFqueuingsystem-Differences"><strong>Differences</strong></h3><div class="table-wrap"><table class="confluenceTable"><tbody><tr><th class="confluenceTh"> </th><th class="confluenceTh">Jim Kent's parasol</th><th class="confluenceTh">para.pl for LSF</th></tr><tr><td class="confluenceTd">How many active jobLists can you have in one directory?</td><td class="confluenceTd">Just 1 !!</td><td class="confluenceTd">many</td></tr><tr><td class="confluenceTd">Do you have to give a name to each running jobList?</td><td class="confluenceTd">No (just do <em>para check</em>)</td><td class="confluenceTd">Yes, (e.g. <em>para.pl check jobListName</em>)</td></tr><tr><td colspan="1" class="confluenceTd">How to push a jobList?</td><td colspan="1" class="confluenceTd"><p><em>para create jobList</em><br />then<br /><em>para push</em></p></td><td colspan="1" class="confluenceTd"><em>para.pl push jobListName jobList</em></td></tr><tr><td class="confluenceTd"><p>If you ran para push, is there a command to 'connect' to the running jobList<br />and wait until it finishes?</p></td><td class="confluenceTd">No.</td><td class="confluenceTd">Yes, <em>para.pl wait</em></td></tr><tr><td class="confluenceTd">How can you push crashed jobs again?</td><td class="confluenceTd"><em>para push</em></td><td class="confluenceTd"><em>para.pl pushCrashed jobListName</em></td></tr><tr><td class="confluenceTd">Can you adjust the priority of your jobs?</td><td class="confluenceTd">Yes, <em>para priority</em></td><td class="confluenceTd">not possible</td></tr><tr><td colspan="1" class="confluenceTd">How to clean up the internal files?</td><td colspan="1" class="confluenceTd"><em>rm para.results para.bookmark batch*</em></td><td colspan="1" class="confluenceTd"><em>para.pl clean jobListName</em></td></tr><tr><td colspan="1" class="confluenceTd">Can you check for created output files?</td><td colspan="1" class="confluenceTd">Yes, with commands like<br /><em>run.csh input {check out outputFile}</em></td><td colspan="1" class="confluenceTd">No. You will have to do that after the jobs finished.</td></tr><tr><td colspan="1" class="confluenceTd">Do you need to wrap unix redirects, pipes and others in a csh script.</td><td colspan="1" class="confluenceTd">Yes.</td><td colspan="1" class="confluenceTd"><p>No. Jobs like<br /><em>tool input | grep test &gt; output; convert output output2</em><br />are fine.</p><p>Your jobs can contain any special chars, including '{}$&quot; etc.</p></td></tr></tbody></table></div><h3 id="ParasolWrapperfortheLSFqueuingsystem-Whatisthesame"><strong>What is the same</strong></h3><p>(With para.pl you always need the jobListName)</p><div class="table-wrap"><table class="confluenceTable"><tbody><tr><td class="confluenceTd">push a joblist</td><td class="confluenceTd">para push</td></tr><tr><td class="confluenceTd">get a status of the jobList</td><td class="confluenceTd">para check</td></tr><tr><td class="confluenceTd"><p>push the jobList and wait until it finishes,<br />push crashed jobs again until they failed 3 times</p></td><td class="confluenceTd">para make</td></tr><tr><td class="confluenceTd">List crashed jobs</td><td class="confluenceTd">para crashed</td></tr><tr><td class="confluenceTd">Get runtime estimates</td><td class="confluenceTd"><p>para time</p></td></tr><tr><td class="confluenceTd">Stop all jobs</td><td class="confluenceTd">para stop</td></tr><tr><td class="confluenceTd">Stop all pending jobs, let running jobs run</td><td class="confluenceTd">para chill</td></tr></tbody></table></div><h2 id="ParasolWrapperfortheLSFqueuingsystem-KnownBugs">Known Bugs</h2><p>Currently, no bug is known. We have extensively tested the script for over 1 year and it works.</p><h2 id="ParasolWrapperfortheLSFqueuingsystem-DeveloperNotes">Developer Notes</h2><h3 id="ParasolWrapperfortheLSFqueuingsystem-Internalfiles">Internal files</h3><p>para.pl creates a .para directory that stores 3 files for each jobList.</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre># lists all parameters for bsub (the queue, run time estimates, requires RAM etc). We need this for pushing crashed jobs again. 
+cat .para/.para.bsubParameters.test 
+-q medium -W 0:50
+
+# lists all the job commands, their LSF job ID and para&#39;s internal name
+# format: jobID jobName jobCommand
+head .para/.para.jobs.test 
+122704    jobListTest/1/o.0    short    DieRandomTime.perl 30 -T 0.4 &gt; resultsDir/run0.txt
+122705    jobListTest/1/o.1    short    DieRandomTime.perl 33 -T 0.4 &gt; resultsDir/run1.txt
+122706    jobListTest/1/o.2    short    DieRandomTime.perl 38 -T 0.4 &gt; resultsDir/run2.txt
+122707    jobListTest/1/o.3    short    DieRandomTime.perl 40 -T 0.4 &gt; resultsDir/run3.txt
+122708    jobListTest/1/o.4    short    DieRandomTime.perl 49 -T 0.4 &gt; resultsDir/run4.txt
+
+# lists the status of all jobs
+# status can be PEND RUN DONE EXIT
+# format: jobID jobName status numberOfTimesFailed runTimeInSeconds
+head .para/.para.status.test 
+122704    jobListTest/1/o.0    DONE    0    30
+122705    jobListTest/1/o.1    DONE    0    33
+122706    jobListTest/1/o.2    RUN    0    34
+122707    jobListTest/1/o.3    RUN    0    34
+122708    jobListTest/1/o.4    RUN    0    34</pre>
+</div></div><p>Every job is submitted via bsub with parameter '-o .para/$jobName'. The jobName points to the output file and has the format $jobListName/$subDir/o.$number. Instead of writing potentially thousands of output files into one directory (a challenge for lustre), we create intermediate $subDir directories that each contain only 1000 output files. <br />If a job finishes or crashed, this output file is created and contains the status and the runtime.</p><h3 id="ParasolWrapperfortheLSFqueuingsystem-Updatingthejobstatus">Updating the job status</h3><p>Nearly every action of para.pl calls first the check() function. That function runs bjobs, determines the current status of each job and updates the .para/.para.status.$jobListName file.</p><p>bjobs uses an in-memory database to keep track of currently pending and running jobs as well as a limited number of failed or finished jobs. That means if a job finished a while ago, bjobs will not find it anymore. <br />In para, to get the status of these jobs, we use the status written in the output file for every job. Also the runtime of finished jobs is then read from the output file.</p><h3 id="ParasolWrapperfortheLSFqueuingsystem-Lockfile">Lockfile</h3><p>Every function calls the unix lockfile mechanism to assure that – for the given jobListName – no other parallel call of para.pl clobbers the files. Run time issues are prevented by that.</p><h3 id="ParasolWrapperfortheLSFqueuingsystem-Timeestimates">Time estimates</h3><p>Runtimes for finished jobs are read from bjobs -l jobID or from the output file. RunTimes for running jobs are $currentTime - $startTime of the job. <br />To get an estimate when all the jobs are finished, we compute</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>$aveRunTimeFinishedJobs * ($numJobsPend + $numJobsRun) / $numJobsRun</pre>
+</div></div><p>We assume here that the running and pending jobs will have a similar run time and that we will continue to use the same number cores ($numJobsRun). This estimate is conservative in that the current runtime of all running jobs is ignored (means we assume they all just started now).</p><h3 id="ParasolWrapperfortheLSFqueuingsystem-Submittingjobswithspecialchars">Submitting jobs with special chars</h3><p>If your jobList has jobs like</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>cat input.maf | wc | cut -f1 &gt; outputfile</pre>
+</div></div><p>then para.pl will just submit them as</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>bsub -q short &quot;cat input.maf | wc | cut -f1 &gt; outputfile&quot;</pre>
+</div></div><p>However, if your jobList contains more complex shell commands with special characters (like $!^&amp;*()?'&quot;)</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>egrep &quot;^s hg18&quot; input.maf | awk &#39;{print length($7)}&#39; &gt; outputfile</pre>
+</div></div><p>then para.pl cannot just submit as</p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>bsub -q short &quot;egrep &quot;^s hg18&quot; input.maf | awk &#39;{print length($7)}&#39; &gt; outputfile&quot;</pre>
+</div></div><p>because the shell would already interpret special chars like $7 as a variable (not set here) and the ' signs would cause the command to break. Michael implemented a (very geeky) way to double-mask the special chars and submit even such jobs via para.pl to the LSF cluster:<span> </span></p><div class="preformatted panel" style="border-width: 1px;"><div class="preformattedContent panelContent">
+<pre>bsub -q short sh -c &#39;egrep &quot;^s hg18&quot; intput.maf | awk &#39;\&#39;\\\&#39;\&#39;&#39;{print length($7)}&#39;\&#39;\\\&#39;\&#39;&#39; &gt; outputfile&#39;</pre>
+</div></div>
+                    </div>
+
+                    
+                 
+                </div>             </div> 
+        </div>     </body>
+</html>
