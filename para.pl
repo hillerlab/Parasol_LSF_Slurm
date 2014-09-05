@@ -114,8 +114,9 @@ my $paraJobsFilebackup = "./.para/backup/.para.jobs.$jobListName.backup";
 my $paraStatusFilebackup = "./.para/backup/.para.status.$jobListName.backup";
 my $paraBsubParaFilebackup = "./.para/backup/.para.bsubParameters.$jobListName.backup";
 
-# we need the user name for bjobs below
+# we need the user name for bjobs below. Truncate the name to 7 chars, as bjobs just shows the first 7 chars of USER
 my $user = $ENV{'USER'};
+$user = substr($user, 0, 7);
 print "USER: $user\n" if ($verbose);
 
 # test if the given action is correct
