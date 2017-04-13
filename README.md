@@ -1,7 +1,7 @@
 ParasolLSF
 ==========
 
-A wrapper around LSF for managing batches of jobs (jobLists) on a compute cluster.
+A wrapper around LSF or Slurm for managing batches of jobs (jobLists) on a compute cluster.
 
 The wrapper is inspired by Jim Kent's Parasol functionality (http://genecats.cse.ucsc.edu/eng/parasol.htm).
 
