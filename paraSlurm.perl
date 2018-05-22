@@ -392,6 +392,11 @@ If this is not an accident, do \n\tpara clean $jobListName\nand call again\n"
         die "ERROR: queue is neither short/shortmed/medium/day/long.\n";
     }
 
+	# add additional sbatchParameters
+	if ($sbatchParameters ne "") {
+		$jobFileFixedPart .= "#SBATCH $sbatchParameters\n";
+	}
+
 	# create the two internal para files listing the jobs and their status
 	open (fileJobs, ">$paraJobsFile") || die "######### ERROR #########: cannot create $paraJobsFile\n";
 	open (fileStatus, ">$paraStatusFile") || die "######### ERROR #########: cannot create $paraStatusFile\n";
