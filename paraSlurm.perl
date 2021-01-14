@@ -27,14 +27,17 @@ $Queue2Order{"short"}  = 0;
 $Queue2Order{"shortmed"}  = 1;
 $Queue2Order{"medium"} = 2;
 $Queue2Order{"day"}    = 3;
-$Queue2Order{"long"}   = 4;
+$Queue2Order{"threedays"}    = 4;
+$Queue2Order{"long"}   = 5;
 my %Order2Queue;
 $Order2Queue{0} = "short";
 $Order2Queue{1} = "shortmed";
 $Order2Queue{2} = "medium";
 $Order2Queue{3} = "day";
-$Order2Queue{4} = "long";
+$Order2Queue{4} = "threedays";
+$Order2Queue{5} = "long";
 ######################################
+
 
 my $maxNumJobsWarning = 10000;
 my $maxNumJobsStop = 12500;
@@ -49,7 +52,8 @@ my $maxNumFastSleepCycles = 10;		# do that many cycles where we sleep only $slee
 my $sleepTime1 = 60;						# time in seconds
 my $sleepTime2 = 120;
 #my $sleepTimeLSFBusy = 180;			# time to wait if LSF is too busy
-#my $sleepTimesacctError = 50;			# time to wait if LSF sacct returns corrupted output
+my $sleepTimesacctError = 180;		# time to wait before trying again if sacct returns an error or corrupted output
+my $bigmem = 0;							# push to bigmem partition
 #####################################
 
 #####################################
@@ -67,7 +71,7 @@ my $memoryMb = -1;						# memory in MB requested per job
 #####################################
 
 # usage
-my $usage = "$0 action jobListName [jobListFile] [-q queue] [-memoryMb numInMb] [-numCores num] [-p sbatchParameters] [-v|verbose] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded] [-keepBackupFiles]
+my $usage = "$0 action jobListName [jobListFile] [-q queue] [-memoryMb numInMb] [-numCores num] [-bigmem] [-p sbatchParameters] [-v|verbose] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded] [-keepBackupFiles]
 where action can be:    make, push, pushCrashed, check, wait, stop, chill, time, crashed, clean\n
 \tmake          pushes the joblist, monitors progress, pushes failed jobs again a maximum of $maxNumResubmission times, waits until all jobs are done or jobs crashed >$maxNumResubmission times
 \tpush          pushes the joblist
@@ -80,8 +84,8 @@ where action can be:    make, push, pushCrashed, check, wait, stop, chill, time,
 \tcrashed       outputs all crashed jobs into the given output filename
 \tclean         remove all internal para files and LSF output files for the given jobListName
 The number of input parameters depends on the action:
-\t$0 make          jobListName  jobListFile  [-q|queue short|shortmed|medium|day|long] [-memoryMb numInMb] [-numCores num] [-p|parameters \"additional parameters for bsub\"] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
-\t$0 push          jobListName  jobListFile  [-q|queue short|shortmed|medium|day|long] [-memoryMb numInMb] [-numCores num] [-p|parameters \"additional parameters for bsub\"] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
+\t$0 make          jobListName  jobListFile  [-q|queue short|shortmed|medium|day|threedays|long] [-memoryMb numInMb] [-bigmem] [-numCores num] [-p|parameters \"additional parameters for bsub\"] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
+\t$0 push          jobListName  jobListFile  [-q|queue short|shortmed|medium|day|threedays|long] [-memoryMb numInMb] [-bigmem] [-numCores num] [-p|parameters \"additional parameters for bsub\"] [-maxNumResubmission int] [-noResubmitIfQueueMaxTimeExceeded] [-resubmitToSameQueueIfQueueMaxTimeExceeded]
 \t$0 pushCrashed   jobListName  
 \t$0 check         jobListName
 \t$0 wait          jobListName
@@ -97,6 +101,11 @@ General parameters
 \t-resubmitToSameQueueIfQueueMaxTimeExceeded   resubmit the jobs that failed because they exceeded the runtime limit of the queue, but resubmit to the same (rather than the next longest) queue. 
 \t                                             Only useful, if your job checks which preliminary results exist (e.g. for input elements the output file already exist).
 \t-keepBackupFiles                             if set, keep a backup of every internal para file in a dir .para/backup/ (backup files will be produced everytime the internal files are updated)
+\t
+\t-bigmem                                      Will push the jobs into the bigmem partition, using the runtime specified by -q and the memory specified by -memoryMb 
+\t                                             DO NOT Use -q long
+\t                                             (e.g. '-bigmem -q shortmed -memoryMb 500000' for 500 GB)
+\t-maxNumJobsStop int                          max number of jobs in the joblist that para will accept (default 12500). Do only increase this if there is no other way of combining jobs. 
 ";
 
 # first thing: check if the script is executed on $clusterHeadNode
@@ -109,7 +118,7 @@ $memoryMb = 10000;
 # parse options
 GetOptions ("v|verbose"  => \$verbose, "p|parameters=s" => \$sbatchParameters, "q|queue=s" => \$queue, "maxNumResubmission=i" => \$maxNumResubmission, 
             "noResubmitIfQueueMaxTimeExceeded" => \$noResubmitIfQueueMaxTimeExceeded, "resubmitToSameQueueIfQueueMaxTimeExceeded" => \$resubmitToSameQueueIfQueueMaxTimeExceeded, 
-            "keepBackupFiles" => \$keepBackupFiles, "numCores=i" => \$numCores, "memoryMb=i" => \$memoryMb) 
+            "keepBackupFiles" => \$keepBackupFiles, "numCores=i" => \$numCores, "memoryMb=i" => \$memoryMb, "bigmem" => \$bigmem, "maxNumJobsStop=i" => \$maxNumJobsStop) 
 		|| die "$usage\n";
 die "ERROR: Set only one of -resubmitToSameQueueIfQueueMaxTimeExceeded and -noResubmitIfQueueMaxTimeExceeded but not both !" if ($resubmitToSameQueueIfQueueMaxTimeExceeded == 1 && $noResubmitIfQueueMaxTimeExceeded == 1);
 die "Parameters missing!!\n\n$usage\n" if ($#ARGV < 1);
@@ -130,7 +139,7 @@ my $action = $ARGV[0];
 die "$usage\n" if (! ($action eq "make" || $action eq "wait" || $action eq "push" || $action eq "pushCrashed" || $action eq "check" || $action eq "time" || $action eq "stop" || $action eq "chill" || $action eq "crashed" || $action eq "clean") );
 # if push or make: test if the queue is correct and if jobList exist
 if ($action eq "make" || $action eq "push") {
-	die "######### ERROR #########: parameter -q|queue must be set to short, shortmed, medium, day, long. Not to $queue.\n" if (! ($queue eq "short" || $queue eq "shortmed" || $queue eq "medium" || $queue eq "day" || $queue eq "long"));
+	die "######### ERROR #########: parameter -q|queue must be set to short, shortmed, medium, day, threedays, long. Not to $queue.\n" if (! ($queue eq "short" || $queue eq "shortmed" || $queue eq "medium" || $queue eq "day" || $queue eq "threedays" || $queue eq "long"));
 	# test if jobListname and jobList file are given
 	die "Parameters missing!!\n\n$usage\n" if ($#ARGV < 2);
 	# test if jobList exist
@@ -139,6 +148,11 @@ if ($action eq "make" || $action eq "push") {
 }else{
 	# test if the internal job and jobStatus files exist in the current directory
 	checkIfInternalFilesExist($jobListName);
+}
+
+# do not allow bigmem jobs with -q long
+if ($bigmem == 1 && $queue eq "long") {
+	die "######### ERROR #########: You should not run BIGMEM jobs in the long queue (2 weeks)\n";
 }
 
 # based on the action, decide what to do and test if the number of parameters is correct
@@ -245,9 +259,9 @@ sub checkIfInternalFilesExist {
 	die "######### ERROR #########: internal file $paraStatusFile not found in this directory\n" if (! -e "$paraStatusFile");
 	
 	# compare if the line count in $paraJobsFile and $paraStatusFile equals $noOfSubmittedJobs --> otherwise these files are corrupted
-	my $lineNoparaJobsFile = `cat $paraJobsFile | wc -l`; chomp($lineNoparaJobsFile);
-	my $lineNoparaStatusFile = `cat $paraStatusFile | wc -l`; chomp($lineNoparaStatusFile);
-	my $noOfSubmittedJobs = `cat $paraJobNoFile`; chomp($noOfSubmittedJobs);
+	my $lineNoparaJobsFile = `set -o pipefail; cat $paraJobsFile | wc -l`; chomp($lineNoparaJobsFile);
+	my $lineNoparaStatusFile = `set -o pipefail; cat $paraStatusFile | wc -l`; chomp($lineNoparaStatusFile);
+	my $noOfSubmittedJobs = `set -o pipefail; cat $paraJobNoFile`; chomp($noOfSubmittedJobs);
 	
 	print "checkIfInternalFilesExist(): number of lines in $paraJobsFile = $lineNoparaJobsFile. $paraStatusFile = $lineNoparaStatusFile. Number of submitted jobs $noOfSubmittedJobs\n" if ($verbose);
 	
@@ -285,10 +299,18 @@ sub pushSingleJob {
 	print "SUBMIT this implicit jobFile to sbatch: $sbatchCall\n\n" if ($verbose);
 
 	# we use bash printf to submit the above string as a file to sbatch
-	my $command = "sbatch <<< \"\$( printf '$sbatchCall' )\"";
+	my $command = "set -o pipefail; sbatch <<< \"\$( printf '$sbatchCall' )\"";
 	print "\t$command\n" if ($verbose);
 	my $result = `$command`;
-	die "######### ERROR ######### in pushSingleJob: $command failed with exit code $?\n" if ($? != 0);
+	
+	# if submitting this job fails, then wait 3 min and try again one more time. If it still fails, then die.
+	if ($? != 0) {
+		print STDERR "WARNING in pushSingleJob: submitting this job ($sbatchCall) with sbatch failed. Will sleep $sleepTimesacctError sec and try one more time\n";
+		sleep($sleepTimesacctError);
+		undef($result);
+		$result = `$command`;
+		die "######### ERROR ######### in pushSingleJob: $command failed with exit code $?\n" if ($? != 0);
+	}
 	print "$result\n" if ($verbose);
 
 	# get the job ID
@@ -308,7 +330,7 @@ sub pushSingleJob {
 #####################################################
 sub getLock {
 	print "Waiting to get ./lockFile.$jobListName   ..... [Takes too long? Did a previous para run died? If so, open a new terminal and   rm -f ./lockFile.$jobListName ] .....  ";
-	system "lockfile -1 ./lockFile.$jobListName" || die "######### ERROR #########: cannot get lock file: ./lockFile.$jobListName\n";
+	system "set -o pipefail; lockfile -1 ./lockFile.$jobListName" || die "######### ERROR #########: cannot get lock file: ./lockFile.$jobListName\n";
 	print "got it\n";
 }
 
@@ -320,17 +342,17 @@ sub pushJobs {
 	my $jobListFile = $ARGV[2];
    
 	# check if the max number of jobs is not exceeded
-	my $jobNumCheck = `cat $jobListFile | wc -l`; chomp($jobNumCheck);
+	my $jobNumCheck = `set -o pipefail; cat $jobListFile | wc -l`; chomp($jobNumCheck);
 	die "ERROR: You have $jobNumCheck jobs in $jobListFile, which is too much for the cluster. Reduce the number of jobs to <$maxNumJobsWarning and push again." if ($jobNumCheck > $maxNumJobsStop);
 	print STDERR "!!! WARNING !!!  With $jobNumCheck jobs in $jobListFile you have more than $maxNumJobsWarning jobs. !!\n" if ($jobNumCheck > $maxNumJobsWarning);
 
 	
 	# create the .para dir, in case it does not exist
 	if (! -d "./.para") {
-		system("mkdir ./.para") == 0 || die "######### ERROR #########: cannot create the ./.para directory\n";	
+		system("set -o pipefail; mkdir ./.para") == 0 || die "######### ERROR #########: cannot create the ./.para directory\n";	
 	}
 	if (($keepBackupFiles == 1) && (! -d "./.para/backup")) {
-		system("mkdir ./.para/backup") == 0 || die "######### ERROR #########: cannot create the ./.para/backup directory\n";	
+		system("set -o pipefail; mkdir ./.para/backup") == 0 || die "######### ERROR #########: cannot create the ./.para/backup directory\n";	
 	}
 
 	# make sure we never clobber the $paraJobsFile and $paraStatusFile files if they already (or still) exist. 
@@ -384,18 +406,24 @@ If this is not an accident, do \n\tpara clean $jobListName\nand call again\n"
         $jobFileFixedPart .= "#SBATCH --time=08:00:00\n";
     }elsif ($queue eq "day") {
         $jobFileFixedPart .= "#SBATCH --time=24:00:00\n";
+    }elsif ($queue eq "threedays") {
+        $jobFileFixedPart .= "#SBATCH --time=72:00:00\n";
+        $jobFileFixedPart .= "#SBATCH --partition=long\n";
     }elsif ($queue eq "long") {
         # 2 weeks
         $jobFileFixedPart .= "#SBATCH --time=336:00:00\n";
         $jobFileFixedPart .= "#SBATCH --partition=long\n";
     }else {
-        die "ERROR: queue is neither short/shortmed/medium/day/long.\n";
+        die "ERROR: queue is neither short/shortmed/medium/day/threedays/long.\n";
     }
 
-	# add additional sbatchParameters
-	if ($sbatchParameters ne "") {
-		$jobFileFixedPart .= "#SBATCH $sbatchParameters\n";
+	# run on bigmem partition if flag is set
+	if ($bigmem == 1) {
+        $jobFileFixedPart .= "#SBATCH --partition=bigmem\n";
+        print "**** BIGMEM partition requested\n" if ($verbose);
 	}
+	print "SUBMIT this implicit jobFile to sbatch: $jobFileFixedPart\n\n" if ($verbose);
+
 
 	# create the two internal para files listing the jobs and their status
 	open (fileJobs, ">$paraJobsFile") || die "######### ERROR #########: cannot create $paraJobsFile\n";
@@ -407,14 +435,14 @@ If this is not an accident, do \n\tpara clean $jobListName\nand call again\n"
 	my $line;
 	my $numJobs = 0;
 	my $subDir = 0;
-	system("mkdir -p ./.para/$jobListName/")  == 0 || die "######### ERROR #########: cannot create the ./.para/$jobListName directory\n";	
+	system("set -o pipefail; mkdir -p ./.para/$jobListName/")  == 0 || die "######### ERROR #########: cannot create the ./.para/$jobListName directory\n";	
 	while ($line = <file1>) {
 		chomp($line);
 
 		# start a new subdir if $maxNumOutFilesPerDir files in the current $subdir are reached
 		if ($numJobs % $maxNumOutFilesPerDir == 0) {
 			$subDir ++;
-			system("mkdir -p ./.para/$jobListName/$subDir")  == 0 || die "######### ERROR #########: cannot create the ./.para/$jobListName/$subDir directory\n";	
+			system("set -o pipefail; mkdir -p ./.para/$jobListName/$subDir")  == 0 || die "######### ERROR #########: cannot create the ./.para/$jobListName/$subDir directory\n";	
 		}
 
 		# push the job and get the jobID back
@@ -436,7 +464,7 @@ If this is not an accident, do \n\tpara clean $jobListName\nand call again\n"
 	# make a backup copy with version number 0 that refers to these original files
 	firstBackup();
 
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 	print "DONE.\n$numJobs jobs pushed using parameters: -q $queue $sbatchParameters\n\n";
 	
 	# keep track of how many jobs we have pushed --> write to a file
@@ -619,7 +647,7 @@ sub check {
 		}
 	}
 	close fileStatus;
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 	
 	my $numJobs = $allnumRun + $allnumPend + $allnumFailed + $allnumDone;
 
@@ -638,7 +666,7 @@ sub check {
 	
 	if ($verbose) {
 		print "CHECK: current content of $paraStatusFile\n"; 
-		system("cat $paraStatusFile");
+		system("set -o pipefail; cat $paraStatusFile");
 	}
 
 	return ($allDone, $allnumRun, $allnumPend, $allnumFailed, $allnumDone, $numJobs, $allnumFailedLessThanMaxNumResubmission, \@jobIDsFailedLessThanMaxNumResubmission);
@@ -652,12 +680,19 @@ sub runSingleJob_sacct {
     my ($jobID) = shift;
     
     # run sacct and parse
-    my $call = "sacct --format=JobID,State,cputimeraw,exitcode -n --delimiter=\$'\\t' -p -j $jobID";
+    my $call = "set -o pipefail; sacct --format=JobID,State,cputimeraw,exitcode -n --delimiter=\$'\\t' -p -j $jobID";
     print "\tsingleJob sacct: $call\n" if ($verbose);
     my @res = `$call`;
-    die "######### ERROR ######### in singleJob sacct: $call failed with exit code $?\n" if ($? != 0);
+    # if that sacct job fails, then wait 3 min and try again one more time. If it still fails, then die. 
+    if ($? != 0) {
+       print STDERR "WARNING in singleJob_sacct: running sacct for this single job ($jobID) failed. Will sleep $sleepTimesacctError sec and try one more time\n";
+       sleep($sleepTimesacctError);
+       undef(@res);
+       @res = `$call`;
+       die "######### ERROR ######### in singleJob sacct: $call failed with exit code $?\n";
+    }
     chomp(@res);
-    
+
     # just in case we get more than one line back
     foreach my $line (@res) {
         my ($jobIDreturned, $status, $runTime, $exitCode) = (split(/\t/, $line))[0,1,2,3];
@@ -693,9 +728,14 @@ sub pushCrashed {
 	getLock();
 
 	# read the bsub parameters
-	open (filePara, "$paraSbatchParaFile") || die "######### ERROR #########: cannot read $paraSbatchParaFile\n";
-	my $allothersbatchParameters = <filePara>;			# contains the queue and additional stuff
+	my $allothersbatchParameters = "";
+	open (filePara, "<$paraSbatchParaFile") || die "######### ERROR #########: cannot read $paraSbatchParaFile\n";
+	while(<filePara>)
+	{
+	    $allothersbatchParameters .= $_;
+	}
 	close filePara;
+
 
 	# now read all jobs from $paraJobsFile into a hash, as we have to update the jobIDs
 	open (fileJobs, "$paraJobsFile") || die "######### ERROR #########: cannot read $paraJobsFile\n";
@@ -745,7 +785,7 @@ sub pushCrashed {
 		}
 
 		# save the output file if we resubmit so that people can have a look
-		system("mv ./.para/$jobName ./.para/$jobName.crashed");
+		system("set -o pipefail; mv ./.para/$jobName ./.para/$jobName.crashed");
 
 		my $jobFileFixedPart = $allothersbatchParameters;
 		# add runtime, depending on the queue
@@ -757,13 +797,24 @@ sub pushCrashed {
 			$jobFileFixedPart .= "#SBATCH --time=08:00:00\n";
 		}elsif ($queueForThisJob eq "day") {
 			$jobFileFixedPart .= "#SBATCH --time=24:00:00\n";
+		}elsif ($queueForThisJob eq "threedays") {
+			$jobFileFixedPart .= "#SBATCH --time=72:00:00\n";
+			$jobFileFixedPart .= "#SBATCH --partition=long\n";
 		}elsif ($queueForThisJob eq "long") {
 			# 2 weeks
 			$jobFileFixedPart .= "#SBATCH --time=336:00:00\n";
 			$jobFileFixedPart .= "#SBATCH --partition=long\n";
 		}else {
-			die "ERROR: queue is neither short/shortmed/medium/day/long.\n";
+			die "ERROR: queue is neither short/shortmed/medium/day/threedays/long.\n";
 		}
+
+		# run on bigmem partition if flag is set
+		if ($bigmem == 1) {
+			$jobFileFixedPart .= "#SBATCH --partition=bigmem\n";
+			print "**** BIGMEM partition requested\n" if ($verbose);
+		}
+		print "SUBMIT this implicit jobFile to sbatch: $jobFileFixedPart\n\n" if ($verbose);
+
 
 		# push
 		my $newID = pushSingleJob($jobFileFixedPart, "./.para/$jobName", $job);
@@ -815,7 +866,7 @@ sub pushCrashed {
 	close fileStatus;
 	print "\tPUSHCRASHED: DONE\n" if ($verbose);
 
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
 	print "--> $numJobsPushedAgain jobs crashed and were pushed again\n";
 }
@@ -872,6 +923,40 @@ sub waitForJobs {
 
 
 #####################################################
+# under high load, Slurm sometimes does not return a status for all job IDs
+# test whether the sacct output is complete
+# if not, runsacct will call sacct again
+#####################################################
+sub issacctOutputComplete {
+	my ($IDstring, @res) = @_;
+
+	# sanity check: We should get one result line from sacct for every given ID. If not, we are losing jobs. 
+	# we put all returned jobIDs in a hash and check at the end if all IDs have been returned
+	my %jobIDsSeen;
+	foreach my $line (@res) {
+		my ($jobID) = (split(/\t/, $line))[0];
+		# exclude these lines
+		# 65377.0      echo "hal+  COMPLETED   00:00:00      0:0
+		if ($jobID =~ /\./) {
+			print "\tissacctOutputComplete\tline contains a .0 jobID $jobID\n" if ($verbose);
+			next;
+		}
+		$jobIDsSeen{$jobID} = 1;
+	}
+		
+	# now check if all given IDs were returned by sacct
+	my $allGood = 1;
+	foreach my $ID (split(/,/, $IDstring)) {
+		if (! exists $jobIDsSeen{$ID}) {
+			print STDERR "######### WARNING: sacct output incomplete (issacctOutputComplete()): $ID was given but sacct did not return anything for that ID\n--> Will call sacct again\n";
+			$allGood = 0;
+		}
+	}
+
+	return $allGood;
+}
+
+#####################################################
 # run sacct and parse
 #####################################################
 sub runsacct {
@@ -882,13 +967,28 @@ sub runsacct {
 	my %jobIDsSeen;
 		
 	# run sacct
-	my $call = "sacct --format=JobID,State,cputimeraw,exitcode -n --delimiter=\$'\\t' -p -j $IDstring";
+	my $call = "set -o pipefail; sacct --format=JobID,State,cputimeraw,exitcode -n --delimiter=\$'\\t' -p -j $IDstring";
 	print "\tRUNsacct: $call\n" if ($verbose);
-	my @res = `$call`;
-	die "######### ERROR ######### in runsacct: $call failed with exit code $?\n" if ($? != 0);
-	print "\tresult $?: @res\n" if ($verbose);
-	chomp(@res);
-		
+	
+	# in rare cases Slurm has a problem talking to the database --> then wait 3 minutes and try again in an endless loop
+	my @res ;
+	while (1) {
+		@res = `$call`;
+		if ($? != 0) {
+			print "######### ERROR ######### in runsacct: $call failed with exit code $?\n";
+			print "######### ERROR ######### in runsacct: --> wait 3 minutes and run again\n";
+			sleep($sleepTimesacctError);
+		}else{
+			if (issacctOutputComplete($IDstring, @res) == 1) {
+				print "\tcomplete result $?: @res\n" if ($verbose);
+				chomp(@res);
+				last;		# leave the loop if sacct succeeded
+			}else{
+				sleep($sleepTimesacctError);
+			}
+		}
+	}
+
 	# parse something like 
 	# 65377         COMPLETED   00:00:00      0:0
 	# 65377.0       COMPLETED   00:00:00      0:0
@@ -991,7 +1091,7 @@ sub crashed {
 	}
 	close fileJobs;
 	close fileOut;
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
 	print "recovered $numCrashed crashed jobs into $outjobListFile\n";
 }
@@ -1021,14 +1121,14 @@ sub killJobs {
 		my ($jobID, $jobName, $status, $howOftenFailed, $runTime) = (split(/\t/, $line))[0,1,2,3,4];
 		if ($status eq "PENDING") {
 			print "\t\tKILL pending job: $line\n" if ($verbose);
-			system "scancel $jobID" || print "######### ERROR #########: 'scancel $jobID' caused an error. Did the job already finish ?";
+			system "set -o pipefail; scancel $jobID" || print "######### ERROR #########: 'scancel $jobID' caused an error. Did the job already finish ?";
 		}elsif ($status eq "RUNNING" && $mode eq "stop") {
 			print "\t\tKILL running job: $line\n" if ($verbose);
-			system "scancel $jobID" || print "######### ERROR #########: 'scancel $jobID' caused an error. Did the job already finish ?";
+			system "set -o pipefail; scancel $jobID" || print "######### ERROR #########: 'scancel $jobID' caused an error. Did the job already finish ?";
 		}
 	}
 	close fileStatus;
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
 	print "$numPend pending ", ($mode eq "stop" ? "and $numRun running " : ""), "jobs killed\n";
 }
@@ -1114,7 +1214,7 @@ sub gettime {
 	print fileStatus "$newStatus";
 	close fileStatus;
 
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
 	# now calculate the stats and print
 	my $ave = -1;
@@ -1181,21 +1281,21 @@ sub clean {
 
 		# format is $jobID $jobName $status $howOftenFailed $runTime
 		my ($jobID, $jobName, $status, $howOftenFailed, $runTime) = (split(/\t/, $line))[0,1,2,3,4];
-		system("rm -f ./.para/$jobName");
+		system("set -o pipefail; rm -f ./.para/$jobName");
 	}   
 	close fileStatus;
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
-	system("rm -f $paraStatusFile $paraJobsFile $paraSbatchParaFile $paraJobNoFile $paraStatusFilebackup* $paraJobsFilebackup* $paraSbatchParaFilebackup*");
-	system("rm -rf ./.para/$jobListName");
+	system("set -o pipefail; rm -f $paraStatusFile $paraJobsFile $paraSbatchParaFile $paraJobNoFile $paraStatusFilebackup* $paraJobsFilebackup* $paraSbatchParaFilebackup*");
+	system("set -o pipefail; rm -rf ./.para/$jobListName");
 	
 	# delete .para/backup directory if it is empty
 	if (-d ".para/backup") {
-		system ("rmdir .para/backup") if (`ls .para/backup | wc -l` eq "0\n"); 
+		system ("set -o pipefail; rmdir .para/backup") if (`set -o pipefail; ls .para/backup | wc -l` eq "0\n"); 
 	}
 
 	# delete .para directory if it is empty
-	system ("rmdir .para") if (`ls .para/ | wc -l` eq "0\n"); 
+	system ("set -o pipefail; rmdir .para") if (`set -o pipefail; ls .para/ | wc -l` eq "0\n"); 
 
 	print "jobList $jobListName is cleaned\n";
 }
@@ -1218,11 +1318,11 @@ Version 0 refers to the files that have been created right during the first subm
 	
 	getLock();
 
-	system("mv $paraStatusFile.backup $paraStatusFile");
-	system("mv $paraJobsFile.backup $paraJobsFile");
-	system("mv $paraSbatchParaFile.backup $paraSbatchParaFile");
+	system("set -o pipefail; mv $paraStatusFile.backup $paraStatusFile");
+	system("set -o pipefail; mv $paraJobsFile.backup $paraJobsFile");
+	system("set -o pipefail; mv $paraSbatchParaFile.backup $paraSbatchParaFile");
 
-	system "rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
+	system "set -o pipefail; rm -f ./lockFile.$jobListName" || die "######### ERROR #########: cannot delete ./lockFile.$jobListName";	
 
 	print "Successfully restored the internal .para files for jobList $jobListName\n";
 }
@@ -1235,9 +1335,9 @@ sub firstBackup {
 	return if ($keepBackupFiles == 0);
 
 	my $endNumber = 0;
-	system("cp $paraStatusFile $paraStatusFilebackup$endNumber"); 
-	system("cp $paraJobsFile $paraJobsFilebackup$endNumber");
-	system("cp $paraSbatchParaFile $paraSbatchParaFilebackup$endNumber");
+	system("set -o pipefail; cp $paraStatusFile $paraStatusFilebackup$endNumber"); 
+	system("set -o pipefail; cp $paraJobsFile $paraJobsFilebackup$endNumber");
+	system("set -o pipefail; cp $paraSbatchParaFile $paraSbatchParaFilebackup$endNumber");
 }
 
 #####################################################
@@ -1248,18 +1348,18 @@ sub backup {
 	return if ($keepBackupFiles == 0);
 	
 	# get the highest backup number
-	my $command = "find .para/backup/ -name \".para.jobs.$jobListName.backup*\" | awk -F\"backup\" '{print \$3}' | sort -g | tail -n 1";
-	print "backup function: running $command\n" if ($verbose);
+	my $call = "set -o pipefail; find .para/backup/ -name \".para.jobs.$jobListName.backup*\" | awk -F\"backup\" '{print \$3}' | sort -g | tail -n 1";
+	print "backup function: running $call\n" if ($verbose);
 	
 	my $endNumber = 1;
-	$endNumber = `$command`;
+	$endNumber = `$call`;
 	chomp($endNumber);
 	$endNumber++;
 	print "backup function: new endNumber is $endNumber for $paraJobsFilebackup*\n" if ($verbose);
 
-	system("cp $paraStatusFile $paraStatusFilebackup$endNumber"); 
-	system("cp $paraJobsFile $paraJobsFilebackup$endNumber");
-	system("cp $paraSbatchParaFile $paraSbatchParaFilebackup$endNumber");
+	system("set -o pipefail; cp $paraStatusFile $paraStatusFilebackup$endNumber"); 
+	system("set -o pipefail; cp $paraJobsFile $paraJobsFilebackup$endNumber");
+	system("set -o pipefail; cp $paraSbatchParaFile $paraSbatchParaFilebackup$endNumber");
 
 }
 
